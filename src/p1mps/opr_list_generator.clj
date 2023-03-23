@@ -1,7 +1,8 @@
 (ns p1mps.opr-list-generator
   (:gen-class)
   (:require [cheshire.core :as json]
-            [clojure.pprint :as pprint]))
+            [clojure.pprint :as pprint]
+            [clojure.set :as clojure.set]))
 
 (defn greet
   "Callable entry point to the application."
@@ -55,17 +56,30 @@
             []
             units)))
 
-(defn upgrade->options [upgrade])
+(defn combine [unit]
+  (let [equipment (group-by :name (:equipment unit))
+        new-equipment (mapcat (fn [[_ values]]
+                             (take (* (:size unit) 2) values))
+                           equipment)]
+
+    (assoc unit :equipment new-equipment)))
 
 ;; (or (:select u) (:affects u)) (:replaceWhat u)
 (defn upgrade-equipment [unit]
   (let [upgrades (group-by :replaceWhat (:upgrades unit))
         equipment (:equipment unit)
         new-equipment (reduce (fn [result e]
-                                (let [upgrade (get upgrades (:name e))]
-                                  (if upgrade
-                                    (apply conj result (->> (mapcat :options upgrade)
-                                                            (mapcat :gains)))
+                                (let [upgrade (get upgrades (:name e))
+                                      gain (->> (mapcat :options upgrade)
+                                                (mapcat :gains)
+                                                (first))
+                                      already-upgraded (count (filter #(= % (:name gain))
+                                                                      (map :name result)))
+                                      count-max-upgraded (reduce + (map :select upgrade))]
+
+                                  (if (and upgrade (< already-upgraded count-max-upgraded))
+                                    (conj result gain)
+
                                     (conj result e))))
                               []
                               equipment)]
@@ -93,11 +107,14 @@
   (parse-data  (json/parse-string  (slurp "Human Defense Force.json") true)))
 
 
-(def company-commander
+(def infantry-squad
   (get units 2))
 
+(print-equipment
+ (combine infantry-squad))
 
 
-(set-equipment company-commander)
+
+(set-equipment infantry-squad)
 (println "=======================")
 ;;(print-units units)
