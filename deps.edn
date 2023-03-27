@@ -5,8 +5,8 @@
  :aliases
  {:run-m {:main-opts ["-m" "p1mps.opr-list-generator"]}
   :run-x {:ns-default p1mps.opr-list-generator
-          :exec-fn greet
-          :exec-args {:name "Clojure"}}
+          :exec-fn -main
+          :exec-args {}}
   :build {:deps {io.github.seancorfield/build-clj
                  {:git/tag "v0.8.2" :git/sha "0ffdb4c"
                   ;; since we're building an app uberjar, we do not

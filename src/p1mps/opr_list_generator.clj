@@ -2,17 +2,9 @@
   (:gen-class)
   (:require [cheshire.core :as json]
             [clojure.pprint :as pprint]
+            [clojure.string :as string]
             [clojure.set :as clojure.set]))
 
-(defn greet
-  "Callable entry point to the application."
-  [data]
-  (println (str "Hello, " (or (:name data) "World") "!")))
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (greet {:name (first args)}))
 
 (defn print-upgrades [unit]
   (doseq [u (:upgrades unit)]
@@ -21,22 +13,28 @@
         (println (:name g))
         (println "Replace:" (or (:select u) (:affects u)) (:replaceWhat u))))))
 
-(defn print-equipment [u]
-  (doseq [e (:equipment u)]
-    (println (or (:name e) (:label e)))))
+(defn cost [unit]
+  (let [unit-cost (:cost unit)
+        eq-cost (reduce + (remove nil? (map :cost (:equipment unit))))]
+    (+ unit-cost eq-cost)))
 
-(defn print-units [units ]
-  (doseq [u units]
-    (println "=====================")
-    (println "Name:" (:name u))
-    (println "Quality:" (:quality u))
-    (println "Defense:" (:defense u))
-    (println "Size:" (:size u))
-    (println "Equipment:")
-    (print-equipment u)
-    ;;(println "Upgrades:")
-    ;;(print-upgrades u)
-    ))
+(defn print-equipment [u]
+  ;; (doseq [e (:equipment u)]
+  ;;   (println (or (:name e) (:label e))))
+  (let [e (group-by :label (:equipment u))]
+    (doseq [[weapon values] e]
+      (if-not weapon
+        (print (count values) (:name (first (first (get (group-by :name (:equipment u)) weapon)))) " ")
+        (print (count values) weapon " ")))
+    (println)))
+
+
+
+(defn print-unit [unit]
+  (println "=====================")
+  (println (assoc (select-keys unit [:name :quality :defense :size])
+                  :cost (cost unit)))
+  (print-equipment unit))
 
 
 (defn parse-data [data]
@@ -50,7 +48,7 @@
                                   (filter #(= (:type %) "replace")))
                     equipments (->> (:equipment unit)
                                     (mapcat #(take (:size unit) (repeat %))))]
-                (conj result (-> (select-keys unit [:name :quality :defense :size])
+                (conj result (-> (select-keys unit [:name :quality :defense :size :cost])
                                  (assoc :equipment equipments)
                                  (assoc :upgrades upgrades)))))
             []
@@ -59,28 +57,48 @@
 (defn combine [unit]
   (let [equipment (group-by :name (:equipment unit))
         new-equipment (mapcat (fn [[_ values]]
-                             (take (* (:size unit) 2) values))
-                           equipment)]
+                                (take (* (:size unit) 2) values))
+                              equipment)]
+    (-> (update unit :size (partial * 2))
+        (assoc :equipment new-equipment))))
 
-    (assoc unit :equipment new-equipment)))
+(defn upgrade-by-label [upgrades-by-label label]
+  (or (get upgrades-by-label
+           (str "Replace any " (string/join "" (drop-last label))))
+      (get upgrades-by-label
+           (str "Replace any " label))
+      (get upgrades-by-label
+           (str "Replace " label))))
+
 
 ;; (or (:select u) (:affects u)) (:replaceWhat u)
 (defn upgrade-equipment [unit]
   (let [upgrades (group-by :replaceWhat (:upgrades unit))
+        upgrades-by-label (group-by :label (:upgrades unit))
+
         equipment (:equipment unit)
         new-equipment (reduce (fn [result e]
                                 (let [upgrade (get upgrades (:name e))
+                                      upgrade (if-not upgrade
+                                                (upgrade-by-label upgrades-by-label (:label e))
+                                                upgrade)
+                                      cost-gain (reduce + (->> (mapcat :options upgrade)
+                                                               (map :cost)))
                                       gain (->> (mapcat :options upgrade)
                                                 (mapcat :gains)
-                                                (first))
+                                                (rand-nth))
+                                      gain (assoc gain :cost cost-gain)
                                       already-upgraded (count (filter #(= % (:name gain))
                                                                       (map :name result)))
-                                      count-max-upgraded (reduce + (map :select upgrade))]
+                                      affects (first (map :affects upgrade))
+                                      count-max-upgraded (if (and affects (not= affects "any"))
+                                                           (reduce + (map :select upgrade))
+                                                           (:size unit))]
 
-                                  (if (and upgrade (< already-upgraded count-max-upgraded))
-                                    (conj result gain)
-
-                                    (conj result e))))
+                                  (cond
+                                    (and upgrade already-upgraded count-max-upgraded  (< already-upgraded count-max-upgraded)) (conj result gain)
+                                    (= affects "any") (conj result (take (:size unit) (repeat gain)))
+                                    :else (conj result e))))
                               []
                               equipment)]
     (assoc unit :equipment new-equipment)))
@@ -88,33 +106,89 @@
 
 (defn set-equipment [unit]
   (let [upgrades (group-by :replaceWhat (:upgrades unit))
-        rand-replace-whats (random-sample 0.5 (keys upgrades))
+        rand-replace-whats (keys upgrades)
         rand-upgrades (reduce (fn [result upgrade]
                                 (let [chosen-option (rand-nth (:options upgrade))]
                                   (conj result (assoc upgrade :options [chosen-option]))))
                               []
                               (mapcat #(get upgrades %) rand-replace-whats))
-        new-unit (assoc unit :upgrades rand-upgrades)]
-    (println "Replace with:")
-    (print-upgrades new-unit)
-    ;;(print-units [unit])
-    (println "New equipment:")
-    (print-equipment (upgrade-equipment new-unit))))
+        new-unit (assoc unit :upgrades rand-upgrades)
+        new-unit (upgrade-equipment new-unit)]
+    new-unit))
 
 
 
 (def units
-  (parse-data  (json/parse-string  (slurp "Human Defense Force.json") true)))
+  (parse-data (json/parse-string  (slurp "Human Defense Force.json") true)))
 
+
+(->> (json/parse-string  (slurp "Human Defense Force.json") true)
+     :upgradePackages
+     (map :hint))
+
+
+(->> (json/parse-string  (slurp "Human Defense Force.json") true)
+     :units
+     (map :name))
 
 (def infantry-squad
   (get units 2))
 
-(print-equipment
- (combine infantry-squad))
+(def conscripts
+  (get units 1))
+
+(def weapon-team
+  (get units 3))
+
+(def combined-infantry-squad
+  (combine infantry-squad))
+
+(defn list-cost [l]
+  (reduce + (map :cost l)))
+
+(defn make-valid [l]
+  (loop [l (take 10 (shuffle l))
+         cost (list-cost l)]
+    (if (<= cost 2000)
+      l
+      (let [new-list (drop 1 (shuffle l))]
+        (recur
+         new-list
+         (list-cost new-list))))))
+
+
+(defn generate-list [units]
+  (let [l (loop [cost 0
+                 result []]
+            (if (>= cost 2000)
+              result
+              (let [units (take (+ 1 (rand-int 3)) (repeat (rand-nth units)))
+                    units (map set-equipment units)
+                    new-cost (reduce + (map :cost units))]
+                (recur
+                 (+ cost new-cost)
+                 (concat result units)))))]
+    (make-valid l)))
 
 
 
-(set-equipment infantry-squad)
-(println "=======================")
+(defn -main
+  "I don't do a whole lot ... yet."
+  [& args]
+  (loop [i 0
+         result []]
+    (if (> i 10000)
+      result
+      (do
+        (println "\n\nNew list:\n")
+        (let [l (generate-list units)
+              cost (list-cost l)
+              result []]
+          (doseq [unit l]
+            (print-unit unit))
+          (println "Cost:" cost)
+          (if (> cost 1500)
+            (recur i (conj result l))
+            (recur (inc i) result)))))))
+
 ;;(print-units units)
