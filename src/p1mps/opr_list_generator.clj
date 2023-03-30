@@ -2,9 +2,12 @@
   (:gen-class)
   (:require [cheshire.core :as json]
             [clojure.pprint :as pprint]
+            [lanterna.screen :as s]
             [clojure.string :as string]
             [clojure.set :as clojure.set]))
 
+
+;;(def scr (s/get-screen :unix))
 
 (defn print-upgrades [unit]
   (doseq [u (:upgrades unit)]
@@ -29,12 +32,20 @@
     (println)))
 
 
-
 (defn print-unit [unit]
   (println "=====================")
   (println (assoc (select-keys unit [:name :quality :defense :size])
                   :cost (cost unit)))
   (print-equipment unit))
+
+(defn print-list [l]
+  (doseq [u l]
+    (print-unit u)))
+
+
+(defn unit->str [unit]
+  (assoc (select-keys unit [:name :quality :defense :size :equipment])
+         :cost (cost unit)))
 
 
 (defn parse-data [data]
@@ -44,8 +55,7 @@
               (let [upgrades-by-id (group-by :uid upgrades)
                     unit-upgrades (:upgrades unit)
                     upgrades (->> (mapcat (fn [u] (get upgrades-by-id u)) unit-upgrades)
-                                  (mapcat :sections)
-                                  (filter #(= (:type %) "replace")))
+                                  (mapcat :sections))
                     equipments (->> (:equipment unit)
                                     (mapcat #(take (:size unit) (repeat %))))]
                 (conj result (-> (select-keys unit [:name :quality :defense :size :cost])
@@ -68,25 +78,54 @@
       (get upgrades-by-label
            (str "Replace any " label))
       (get upgrades-by-label
-           (str "Replace " label))))
+           (str "Replace " label))
+      ))
+
+
+(defn upgrade-by-replace-what [upgrades-by-what label]
+  )
+
+
+;; Replace X
+;; Replace one X and Y
+;; Replace one X
+;; Replace up to N X
+;; Replace any
+;; Upgrade with one X
+;; Upgrade with up to N X
+;; Upgrade with X
+;; Upgrade all models with one
+;; Upgrade all models with
+;; Upgrade one model with one
+
+
+
+
+
+
 
 
 ;; (or (:select u) (:affects u)) (:replaceWhat u)
 (defn upgrade-equipment [unit]
-  (let [upgrades (group-by :replaceWhat (:upgrades unit))
+  ;; TODO: replace multiple things
+  (let [upgrades-by-replace-what (group-by :replaceWhat (:upgrades unit))
         upgrades-by-label (group-by :label (:upgrades unit))
 
         equipment (:equipment unit)
         new-equipment (reduce (fn [result e]
-                                (let [upgrade (get upgrades (:name e))
+                                (let [upgrade (get upgrades-by-replace-what [(:name e)])
                                       upgrade (if-not upgrade
                                                 (upgrade-by-label upgrades-by-label (:label e))
                                                 upgrade)
+
                                       cost-gain (reduce + (->> (mapcat :options upgrade)
                                                                (map :cost)))
                                       gain (->> (mapcat :options upgrade)
-                                                (mapcat :gains)
-                                                (rand-nth))
+                                                (mapcat :gains))
+
+                                      gain (if-not (empty? gain)
+                                             (rand-nth gain)
+                                             e)
                                       gain (assoc gain :cost cost-gain)
                                       already-upgraded (count (filter #(= % (:name gain))
                                                                       (map :name result)))
@@ -106,7 +145,7 @@
 
 (defn set-equipment [unit]
   (let [upgrades (group-by :replaceWhat (:upgrades unit))
-        rand-replace-whats (keys upgrades)
+        rand-replace-whats (random-sample 0.5 (keys upgrades))
         rand-upgrades (reduce (fn [result upgrade]
                                 (let [chosen-option (rand-nth (:options upgrade))]
                                   (conj result (assoc upgrade :options [chosen-option]))))
@@ -117,31 +156,10 @@
     new-unit))
 
 
-
 (def units
   (parse-data (json/parse-string  (slurp "Human Defense Force.json") true)))
 
 
-(->> (json/parse-string  (slurp "Human Defense Force.json") true)
-     :upgradePackages
-     (map :hint))
-
-
-(->> (json/parse-string  (slurp "Human Defense Force.json") true)
-     :units
-     (map :name))
-
-(def infantry-squad
-  (get units 2))
-
-(def conscripts
-  (get units 1))
-
-(def weapon-team
-  (get units 3))
-
-(def combined-infantry-squad
-  (combine infantry-squad))
 
 (defn list-cost [l]
   (reduce + (map :cost l)))
@@ -175,20 +193,18 @@
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]
-  (loop [i 0
-         result []]
-    (if (> i 10000)
-      result
-      (do
-        (println "\n\nNew list:\n")
-        (let [l (generate-list units)
-              cost (list-cost l)
-              result []]
-          (doseq [unit l]
-            (print-unit unit))
-          (println "Cost:" cost)
-          (if (> cost 1500)
-            (recur i (conj result l))
-            (recur (inc i) result)))))))
+  ;;(s/start scr)
+  (let [lists (->> (loop [i 0
+                          result []]
 
-;;(print-units units)
+                     (if (> i 100000)
+                       result
+                       (let [l (generate-list units)
+                             cost (list-cost l)
+                             result []]
+                         (if (> cost 1900)
+                           (recur i (conj result {assoc {} :cost cost
+                                                  :list l}))
+                           (recur (inc i) result))))))]
+    (doseq [l lists]
+      (print-list l))))

@@ -1,7 +1,8 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         cheshire/cheshire {:mvn/version "5.11.0"}
-        clj-http/clj-http {:mvn/version "3.12.3"}}
+        clj-http/clj-http {:mvn/version "3.12.3"}
+        clojure-lanterna/clojure-lanterna {:mvn/version "0.9.7"}}
  :aliases
  {:run-m {:main-opts ["-m" "p1mps.opr-list-generator"]}
   :run-x {:ns-default p1mps.opr-list-generator
